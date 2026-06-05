@@ -42,14 +42,9 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
       - name: Login to Azure Container Registry (ACR)
         run: |
-          az acr login --name ${{ secrets.ACR_NAME }}
+          echo "${{ secrets.AZURE_CREDENTIALS }}" | docker login ${{ secrets.ACR_NAME }}.azurecr.io -u ${{ secrets.ACR_NAME }} --password-stdin
 
       - name: Build and Push API Image
         run: |
@@ -62,34 +57,3 @@ jobs:
           docker build -t ${{ secrets.ACR_NAME }}.azurecr.io/devops-monitor-dashboard:${{ github.sha }} -t ${{ secrets.ACR_NAME }}.azurecr.io/devops-monitor-dashboard:latest -f dashboard/Dockerfile .
           docker push ${{ secrets.ACR_NAME }}.azurecr.io/devops-monitor-dashboard:${{ github.sha }}
           docker push ${{ secrets.ACR_NAME }}.azurecr.io/devops-monitor-dashboard:latest
-
-  # ---------------------------------------------------------
-  # JOB 3 : DÉPLOIEMENT SUR AZURE CONTAINER APPS (Uniquement sur main)
-  # ---------------------------------------------------------
-  deploy:
-    name: Deploy to Azure Container Apps
-    needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Install Container Apps Extension
-        run: az extension add --name containerapp --upgrade
-
-      - name: Update Backend API Container App
-        run: |
-          az containerapp update \
-            --name devops-monitor-api \
-            --resource-group devops-monitor-rg \
-            --image ${{ secrets.ACR_NAME }}.azurecr.io/devops-monitor-api:${{ github.sha }}
-
-      - name: Update Frontend Dashboard Container App
-        run: |
-          az containerapp update \
-            --name devops-monitor-dashboard \
-            --resource-group devops-monitor-rg \
-            --image ${{ secrets.ACR_NAME }}.azurecr.io/devops-monitor-dashboard:${{ github.sha }}
