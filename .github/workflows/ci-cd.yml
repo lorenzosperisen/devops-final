@@ -1,0 +1,95 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  # ---------------------------------------------------------
+  # JOB 1 : TESTS ET VÉRIFICATIONS
+  # ---------------------------------------------------------
+  test:
+    name: Run Unit Tests & Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Test Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov fastapi httpx psutil pydantic starlette
+
+      - name: Execute Tests via Makefile
+        run: make test
+
+  # ---------------------------------------------------------
+  # JOB 2 : CONSTRUIRE & POUSSER LES IMAGES DOCKER (Uniquement sur main)
+  # ---------------------------------------------------------
+  build:
+    name: Build & Push to ACR
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login to Azure Container Registry (ACR)
+        run: |
+          az acr login --name ${{ secrets.ACR_NAME }}
+
+      - name: Build and Push API Image
+        run: |
+          docker build -t ${{ secrets.ACR_NAME }}.azurecr.io/devops-monitor-api:${{ github.sha }} -t ${{ secrets.ACR_NAME }}.azurecr.io/devops-monitor-api:latest -f api/Dockerfile .
+          docker push ${{ secrets.ACR_NAME }}.azurecr.io/devops-monitor-api:${{ github.sha }}
+          docker push ${{ secrets.ACR_NAME }}.azurecr.io/devops-monitor-api:latest
+
+      - name: Build and Push Dashboard Image
+        run: |
+          docker build -t ${{ secrets.ACR_NAME }}.azurecr.io/devops-monitor-dashboard:${{ github.sha }} -t ${{ secrets.ACR_NAME }}.azurecr.io/devops-monitor-dashboard:latest -f dashboard/Dockerfile .
+          docker push ${{ secrets.ACR_NAME }}.azurecr.io/devops-monitor-dashboard:${{ github.sha }}
+          docker push ${{ secrets.ACR_NAME }}.azurecr.io/devops-monitor-dashboard:latest
+
+  # ---------------------------------------------------------
+  # JOB 3 : DÉPLOIEMENT SUR AZURE CONTAINER APPS (Uniquement sur main)
+  # ---------------------------------------------------------
+  deploy:
+    name: Deploy to Azure Container Apps
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install Container Apps Extension
+        run: az extension add --name containerapp --upgrade
+
+      - name: Update Backend API Container App
+        run: |
+          az containerapp update \
+            --name devops-monitor-api \
+            --resource-group devops-monitor-rg \
+            --image ${{ secrets.ACR_NAME }}.azurecr.io/devops-monitor-api:${{ github.sha }}
+
+      - name: Update Frontend Dashboard Container App
+        run: |
+          az containerapp update \
+            --name devops-monitor-dashboard \
+            --resource-group devops-monitor-rg \
+            --image ${{ secrets.ACR_NAME }}.azurecr.io/devops-monitor-dashboard:${{ github.sha }}
