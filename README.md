@@ -33,3 +33,19 @@ L'infrastructure a été entièrement conteneurisée et déployée sur l'environ
 ---
 
 ## 📐 Architecture cible
+
+```text
+GitHub Repository (Push to main)
+       │
+       ▼
+GitHub Actions CI/CD Pipeline
+ ├── 🧪 Job 1 : Lint (flake8) & Unit Tests (pytest --cov ≥ 75 %)
+ └── 🐳 Job 2 : Build & Push Docker images -> Azure Container Registry (ACR)
+       │
+       ├─────────────────────────────────────────┐
+       ▼                                         ▼
+Azure Container Apps (API Backend)     Azure Container Apps (Dashboard)
+  - URL Interne sécurisée                 - URL Publique ouverte sur Internet
+  - FastAPI (Lifespan background loop)    - Streamlit Engine (Port 8501)
+  - Métriques OS via psutil (Port 8000)   - Client HTTPX asynchrone connecté à l'API
+```
